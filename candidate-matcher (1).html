@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shortlist Desk — Candidate Match Summaries</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <div class="wrap">
+
+    <div class="masthead">
+      <div>
+        <div class="brand">Shortlist <span>Desk</span></div>
+        <div class="tagline">Candidate–JD match briefs, drafted for the client</div>
+      </div>
+    </div>
+    <div class="rule-sub">
+      <span>ONE JOB DESCRIPTION · UP TO 10 CANDIDATES · RANKED BY FIT</span>
+      <span id="today-date"></span>
+    </div>
+
+    <div class="grid">
+      <!-- JD PANEL -->
+      <div class="panel">
+        <div class="panel-head"><span>01 — Job Description</span></div>
+        <div class="panel-body">
+          <label for="job-title">Role / position title</label>
+          <input type="text" id="job-title" placeholder="e.g. Senior Backend Engineer — Payments">
+          <label>Upload job description (.docx or .txt)</label>
+          <div class="dropzone" id="jd-dropzone">
+            <input type="file" id="jd-file" accept=".docx,.txt" hidden>
+            <span class="dz-label" id="jd-dz-label">Click to upload, or drag a file here</span>
+          </div>
+          <div class="dz-status" id="jd-dz-status"></div>
+          <label for="jd-text">Or paste / edit the job description text</label>
+          <textarea class="jd" id="jd-text"
+            placeholder="Paste responsibilities, required skills, experience level, etc."></textarea>
+          <div class="helper">The more detail here, the sharper the match scoring.</div>
+        </div>
+      </div>
+
+      <!-- CANDIDATES PANEL -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>02 — Candidates</span>
+          <span class="count"><span id="cand-count">0</span> / <span id="cand-limit-label">10</span></span>
+        </div>
+        <div class="panel-body">
+          <label for="cv-limit">How many CVs are you uploading? — <span id="cv-limit-value">10</span></label>
+          <input type="range" id="cv-limit" min="1" max="10" value="10" step="1">
+          <label>Upload CVs — select or drag all files at once (.docx or .txt)</label>
+          <div class="dropzone" id="cv-dropzone">
+            <input type="file" id="cv-files" accept=".docx,.txt" multiple hidden>
+            <span class="dz-label" id="cv-dz-label">Click to upload, or drag files here</span>
+          </div>
+          <div class="dz-status" id="cv-dz-status"></div>
+          <div class="helper">Candidate names are pulled automatically from each CV — edit any that guess wrong.</div>
+          <div id="candidate-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-primary" id="analyze-btn">Analyze &amp; rank candidates</button>
+    <div class="helper" id="analyze-helper" style="text-align:center; margin-top:8px;"></div>
+
+    <!-- RESULTS -->
+    <div id="results-panel" style="display:none;">
+      <div class="panel-head" style="border:1px solid var(--line); border-bottom:none;">
+        <span>03 — Ranked shortlist</span>
+        <span class="count" id="results-count"></span>
+      </div>
+      <div id="results-list"
+        style="border:1px solid var(--line); border-top:none; padding:16px; background:var(--paper-dim);"></div>
+    </div>
+
+    <!-- EMAIL -->
+    <div id="email-panel">
+      <div class="panel-head" style="border:1px solid var(--line); border-bottom:none;">
+        <span>04 — Client-ready email</span>
+      </div>
+      <div class="panel-body" style="border:1px solid var(--line); border-top:none; background:#fff;">
+        <div class="email-meta-row">
+          <div>
+            <label for="client-name">Client contact name (optional)</label>
+            <input type="text" id="client-name" placeholder="e.g. Priya">
+          </div>
+          <div>
+            <label for="client-company">Client company name (optional)</label>
+            <input type="text" id="client-company" placeholder="e.g. Nimbus Retail Pvt Ltd">
+          </div>
+        </div>
+        <label for="email-output" style="margin-top:16px;">Generated email</label>
+        <textarea id="email-output" readonly></textarea>
+        <div class="email-actions">
+          <button class="btn" id="regen-email-btn">Regenerate with contact details</button>
+          <button class="btn" id="copy-email-btn">Copy to clipboard</button>
+          <span class="copied-msg" id="copied-msg" style="display:none;">Copied ✓</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="script.js"></script>
+</body>
+
+</html>
