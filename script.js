@@ -6,56 +6,7 @@ let cvLimit = 10;
 
 document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
 
-// --- Groq Config UI Bindings & Persistence ---
-const apiKeyInput = document.getElementById('groq-api-key');
-const modelSelect = document.getElementById('groq-model');
-const toggleKeyBtn = document.getElementById('toggle-key-visibility');
-const toggleConfigBtn = document.getElementById('toggle-config-btn');
-const configPanelBody = document.getElementById('config-panel-body');
-
-// Load stored values
-if (localStorage.getItem('groq_api_key')) {
-  apiKeyInput.value = localStorage.getItem('groq_api_key');
-}
-if (localStorage.getItem('groq_model')) {
-  modelSelect.value = localStorage.getItem('groq_model');
-}
-let configCollapsed = localStorage.getItem('groq_config_collapsed') === 'true';
-if (configCollapsed) {
-  configPanelBody.style.display = 'none';
-  toggleConfigBtn.textContent = '[ Show ]';
-} else {
-  configPanelBody.style.display = 'block';
-  toggleConfigBtn.textContent = '[ Hide ]';
-}
-
-// Event Listeners
-apiKeyInput.addEventListener('input', () => {
-  localStorage.setItem('groq_api_key', apiKeyInput.value.trim());
-});
-modelSelect.addEventListener('change', () => {
-  localStorage.setItem('groq_model', modelSelect.value);
-});
-toggleKeyBtn.addEventListener('click', () => {
-  if (apiKeyInput.type === 'password') {
-    apiKeyInput.type = 'text';
-    toggleKeyBtn.textContent = 'Hide';
-  } else {
-    apiKeyInput.type = 'password';
-    toggleKeyBtn.textContent = 'Show';
-  }
-});
-toggleConfigBtn.addEventListener('click', () => {
-  if (configPanelBody.style.display === 'none') {
-    configPanelBody.style.display = 'block';
-    toggleConfigBtn.textContent = '[ Hide ]';
-    localStorage.setItem('groq_config_collapsed', 'false');
-  } else {
-    configPanelBody.style.display = 'none';
-    toggleConfigBtn.textContent = '[ Show ]';
-    localStorage.setItem('groq_config_collapsed', 'true');
-  }
-});
+// Config panel removed - API key and model hardcoded
 
 const cvLimitInput = document.getElementById('cv-limit');
 const cvLimitValueEl = document.getElementById('cv-limit-value');
@@ -293,96 +244,32 @@ wireDropzone(
 
 function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
 
-async function fetchWithRetry(apiKey, body, maxAttempts = 5){
-  let attempt = 0;
-  while(true){
-    attempt += 1;
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(body)
-    });
-
-    if(response.status === 429 || response.status === 529 || response.status === 503){
-      if(attempt >= maxAttempts) return response; // give up, let caller surface the error
-      const retryAfterHeader = response.headers.get('retry-after');
-      const waitMs = retryAfterHeader
-        ? Math.max(parseFloat(retryAfterHeader) * 1000, 1000)
-        : Math.min(1500 * Math.pow(2, attempt - 1), 20000);
-      await sleep(waitMs);
-      continue;
-    }
-    return response;
-  }
-}
-
-async function callGroqForMatch(apiKey, modelName, jdText, jobTitle, candidateName, cvText){
-  const systemPrompt = `You are an expert technical recruiter assistant. You compare a candidate's CV against a job description and produce a strict JSON object only, with no markdown fences and no extra commentary.
-
-The JSON object must have exactly these keys:
-{
-  "matchPercent": <integer 0-100, how well the candidate fits the JD>,
-  "summary": "<around 50 words, third person, explaining concretely why this candidate suits THIS role, referencing specific skills/experience that align with the JD>"
-}
-
-Scoring guidance: 90-100 = near-perfect fit on skills, experience level, and domain. 70-89 = strong fit with minor gaps. 50-69 = partial fit, some relevant experience but notable gaps. Below 50 = weak fit. Be discriminating — do not default to a narrow band; use the full range based on genuine alignment.
-
-Return ONLY the JSON object, nothing else.`;
-
-  const userMessage = `JOB TITLE: ${jobTitle || '(not specified)'}
-
-JOB DESCRIPTION:
-${jdText}
-
----
-
-CANDIDATE NAME: ${candidateName || '(unnamed)'}
-
-CANDIDATE CV:
-${cvText}`;
-
-  const response = await fetchWithRetry(apiKey, {
-    model: modelName || "llama-3.1-8b-instant",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage }
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.2,
-    max_tokens: 1000
+async function callGroqForMatch(modelName, jdText, jobTitle, candidateName, cvText) {
+  const response = await fetch("http://localhost:3000/api/analyze", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      jdText,
+      jobTitle,
+      candidateName,
+      cvText,
+      modelName
+    })
   });
 
-  if(!response.ok){
-    if(response.status === 429){
-      throw new Error('Still rate-limited after retrying — try analyzing fewer candidates at once, or wait a minute and re-run the failed ones.');
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    if (response.status === 429) {
+      throw new Error(errorData.error || 'Still rate-limited after retrying — try analyzing fewer candidates at once, or wait a minute and re-run the failed ones.');
     }
-    if(response.status === 401){
-      throw new Error('Invalid Groq API key. Please check your credentials.');
-    }
-    throw new Error(`API error ${response.status}`);
+    throw new Error(errorData.error || `API error ${response.status}`);
   }
 
-  const data = await response.json();
-  const choice = (data.choices || [])[0];
-  if(!choice || !choice.message || !choice.message.content) {
-    throw new Error('No text response from model');
-  }
-
-  let cleaned = choice.message.content.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-  let parsed;
-  try{
-    parsed = JSON.parse(cleaned);
-  }catch(e){
-    // try to salvage a JSON object substring
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if(match){ parsed = JSON.parse(match[0]); }
-    else throw new Error('Could not parse model response');
-  }
-  if(typeof parsed.matchPercent !== 'number' || typeof parsed.summary !== 'string'){
-    throw new Error('Malformed response shape');
+  const parsed = await response.json();
+  if (typeof parsed.matchPercent !== 'number' || typeof parsed.summary !== 'string') {
+    throw new Error('Malformed response shape from server');
   }
   return parsed;
 }
@@ -394,17 +281,6 @@ async function analyzeAll(){
   const jobTitle = document.getElementById('job-title').value.trim();
   const helper = document.getElementById('analyze-helper');
   const analyzeBtn = document.getElementById('analyze-btn');
-
-  const apiKey = (localStorage.getItem('groq_api_key') || '').trim();
-  if(!apiKey){
-    helper.textContent = 'Please enter your Groq API Key first.';
-    helper.style.color = 'var(--stamp)';
-    configPanelBody.style.display = 'block';
-    toggleConfigBtn.textContent = '[ Hide ]';
-    localStorage.setItem('groq_config_collapsed', 'false');
-    apiKeyInput.focus();
-    return;
-  }
 
   if(!jdText){
     helper.textContent = 'Add the job description before analyzing.';
@@ -439,14 +315,14 @@ async function analyzeAll(){
 
   const CONCURRENCY = 3; // keep request bursts small to avoid rate limits
   let cursor = 0;
-  const modelName = modelSelect.value || 'llama-3.1-8b-instant';
+  const modelName = 'llama-3.1-8b-instant';
 
   async function worker(){
     while(cursor < activeCandidates.length){
       const c = activeCandidates[cursor];
       cursor += 1;
       try{
-        const result = await callGroqForMatch(apiKey, modelName, jdText, jobTitle, c.name || 'Unnamed candidate', c.cv);
+        const result = await callGroqForMatch(modelName, jdText, jobTitle, c.name || 'Unnamed candidate', c.cv);
         c.matchPercent = Math.max(0, Math.min(100, Math.round(result.matchPercent)));
         c.summary = result.summary.trim();
         c.status = 'done';
