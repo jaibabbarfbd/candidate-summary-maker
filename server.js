@@ -111,7 +111,7 @@ Before scoring, mentally build a checklist of the JD's concrete requirements (sk
 
 The JSON object must have exactly these keys, IN THIS ORDER (reason in "summary" first, then commit to "matchPercent" based on that reasoning — the number must be consistent with what "summary" says, never more favorable than the gaps you just described):
 {
-  "summary": "<around 50 words, third person. Name the current/most relevant employer and what it actually manufactures or does per the CV, state whether that matches the JD's required industry, then name the specific other requirements met and the specific ones missing or weak>",
+  "summary": "<70-100 words, third person, in full readable sentences (not a fragment list). Name the current/most relevant employer and what it actually manufactures or does per the CV, state whether that matches the JD's required industry, then name the specific other requirements met and the specific ones missing or weak. Do not compress this below 70 words — the employer/industry grounding and the requirement-by-requirement comparison both need room to be written out in full sentences.>",
   "matchPercent": <integer 0-100, how well the candidate fits the JD>
 }
 
