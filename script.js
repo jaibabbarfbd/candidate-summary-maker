@@ -245,7 +245,7 @@ wireDropzone(
 function sleep(ms){ return new Promise(resolve => setTimeout(resolve, ms)); }
 
 async function callGroqForMatch(modelName, jdText, jobTitle, candidateName, cvText) {
-  const response = await fetch("http://localhost:3000/api/analyze", {
+  const response = await fetch("/api/analyze", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
