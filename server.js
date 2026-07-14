@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+app.use(express.static(__dirname, { index: 'candidate-matcher (1).html', dotfiles: 'deny' }));
 
 app.post('/api/analyze', async (req, res) => {
   const { jdText, jobTitle, candidateName, cvText, modelName } = req.body;
