@@ -33,15 +33,34 @@ function updateDropzoneAvailability(){
   document.getElementById('cand-count').textContent = candidates.length;
 }
 
+const NAME_LABEL_RE = /^full name(\s+of\s+the\s+candidate)?\s*:?$/i;
+const FORM_FIELD_BLOCKLIST_RE = /resume|curriculum|vitae|\bcv\b|profile|address|phone|email|experience|notice\s*period|native\s*town|team\s*size|reporting|reason\s*for|ctc|qualification|designation|company|location|declaration|employer|stay\s+in|objective|summary|overview|contact|strengths?|skills|hobbies|languages?|education/i;
+
 function guessNameFromText(text, fallbackFileName){
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // Recruiter-template CVs often have an explicit "Full Name of the
+  // candidate" label with the actual name on the very next line — trust
+  // that over the generic heuristics below, since real names here are
+  // sometimes a single all-caps word that the word-count check would reject.
+  for(let i=0; i<Math.min(lines.length, 8); i++){
+    if(NAME_LABEL_RE.test(lines[i]) && lines[i+1]){
+      const candidate = lines[i+1];
+      if(candidate.length >= 2 && candidate.length <= 45 && !/[@0-9]/.test(candidate)){
+        return candidate;
+      }
+    }
+  }
+
   for(let i=0; i<Math.min(lines.length, 8); i++){
     const line = lines[i];
     if(line.length < 3 || line.length > 45) continue;
     if(/[@0-9]/.test(line)) continue;
-    if(/resume|curriculum|vitae|\bcv\b|profile|address|phone|email/i.test(line)) continue;
+    if(FORM_FIELD_BLOCKLIST_RE.test(line)) continue;
     const words = line.split(/\s+/);
-    if(words.length < 2 || words.length > 4) continue;
+    const isSingleAllCapsWord = words.length === 1 && /^[A-Z][A-Z.'-]{2,}$/.test(words[0]);
+    if(words.length < 2 && !isSingleAllCapsWord) continue;
+    if(words.length > 4) continue;
     const looksNameish = words.every(w => /^[A-Za-z][A-Za-z.'-]*$/.test(w));
     if(!looksNameish) continue;
     return line;
@@ -315,7 +334,7 @@ async function analyzeAll(){
 
   const CONCURRENCY = 3; // keep request bursts small to avoid rate limits
   let cursor = 0;
-  const modelName = 'llama-3.1-8b-instant';
+  const modelName = 'llama-3.3-70b-versatile';
 
   async function worker(){
     while(cursor < activeCandidates.length){
