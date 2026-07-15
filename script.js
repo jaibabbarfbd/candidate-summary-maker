@@ -334,7 +334,7 @@ async function analyzeAll(){
 
   const CONCURRENCY = 3; // keep request bursts small to avoid rate limits
   let cursor = 0;
-  const modelName = 'llama-3.1-8b-instant';
+  const modelName = 'llama-3.3-70b-versatile';
 
   async function worker(){
     while(cursor < activeCandidates.length){

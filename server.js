@@ -184,7 +184,7 @@ ${truncateForPrompt(cvText)}`;
 
   try {
     const response = await fetchGroqWithRetry({
-      model: modelName || "llama-3.1-8b-instant",
+      model: modelName || "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage }
