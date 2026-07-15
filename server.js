@@ -95,9 +95,57 @@ async function fetchGroqWithRetry(body, apiKey, maxRetries = 5) {
   }
 }
 
+// Gemini's free tier is a separate token/request budget from Groq's, so it
+// only gets called once Groq's own retries are exhausted — it exists purely
+// as a rate-limit escape hatch, not a load-balancing target.
+const GEMINI_MODEL = 'gemini-2.0-flash';
+async function fetchGeminiForMatch(systemPrompt, userMessage, apiKey) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 500,
+          responseMimeType: 'application/json'
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const err = new Error(`Gemini API error ${response.status}`);
+    err.status = response.status;
+    throw err;
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('No text response from Gemini');
+  return text;
+}
+
+// Shared by both providers: strips markdown fences and salvages a JSON
+// object substring if the model wrapped it in commentary.
+function parseModelJson(rawContent) {
+  const cleaned = rawContent.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('Could not parse model response');
+  }
+}
+
 app.post('/api/analyze', async (req, res) => {
   const { jdText, jobTitle, candidateName, cvText, modelName } = req.body;
   const apiKey = process.env.GROQ_API_KEY;
+  const geminiApiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     return res.status(500).json({ error: 'Server misconfiguration: API key is missing' });
@@ -131,9 +179,12 @@ CANDIDATE NAME: ${candidateName || '(unnamed)'}
 CANDIDATE CV:
 ${truncateForPrompt(cvText)}`;
 
+  let rawContent;
+  let usedFallback = false;
+
   try {
     const response = await fetchGroqWithRetry({
-      model: modelName || "llama-3.3-70b-versatile",
+      model: modelName || "llama-3.1-8b-instant",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userMessage }
@@ -143,38 +194,37 @@ ${truncateForPrompt(cvText)}`;
       max_tokens: 500
     }, apiKey);
 
-    if (!response.ok) {
-      if (response.status === 429) {
-         return res.status(429).json({ error: 'Still rate-limited after retrying — try analyzing fewer candidates at once, or wait a minute and re-run the failed ones.' });
+    if (response.ok) {
+      const data = await response.json();
+      const choice = (data.choices || [])[0];
+      if (!choice || !choice.message || !choice.message.content) {
+        return res.status(500).json({ error: 'No text response from model' });
       }
+      rawContent = choice.message.content;
+    } else if (response.status === 429 && geminiApiKey) {
+      // Groq's own retries (fetchGroqWithRetry) are already exhausted here —
+      // Gemini draws from a separate free-tier budget, so it's a genuine
+      // escape hatch rather than just retrying into the same wall.
+      usedFallback = true;
+      rawContent = await fetchGeminiForMatch(systemPrompt, userMessage, geminiApiKey);
+    } else if (response.status === 429) {
+      return res.status(429).json({ error: 'Still rate-limited after retrying — try analyzing fewer candidates at once, or wait a minute and re-run the failed ones.' });
+    } else {
       return res.status(response.status).json({ error: `API error ${response.status}` });
     }
 
-    const data = await response.json();
-    const choice = (data.choices || [])[0];
-    if (!choice || !choice.message || !choice.message.content) {
-      return res.status(500).json({ error: 'No text response from model' });
-    }
-
-    let cleaned = choice.message.content.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
-    let parsed;
-    try {
-      parsed = JSON.parse(cleaned);
-    } catch (e) {
-      // try to salvage a JSON object substring
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (match) { parsed = JSON.parse(match[0]); }
-      else { return res.status(500).json({ error: 'Could not parse model response' }); }
-    }
-
+    const parsed = parseModelJson(rawContent);
     if (typeof parsed.matchPercent !== 'number' || typeof parsed.summary !== 'string') {
       return res.status(500).json({ error: 'Malformed response shape' });
     }
 
     res.json(parsed);
   } catch (error) {
-    console.error('Error calling Groq:', error);
-    res.status(500).json({ error: 'Internal server error while calling Groq API' });
+    console.error(`Error calling ${usedFallback ? 'Gemini fallback' : 'Groq'}:`, error);
+    if (usedFallback) {
+      return res.status(429).json({ error: 'Groq is rate-limited and the Gemini fallback also failed — try again in a minute.' });
+    }
+    res.status(500).json({ error: 'Internal server error while calling the AI provider' });
   }
 });
 
