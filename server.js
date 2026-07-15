@@ -11,6 +11,23 @@ app.use(express.static(__dirname, { dotfiles: 'deny' }));
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+// Without a timeout, a single hung request to Groq or Gemini blocks forever.
+// Combined with MAX_CONCURRENT_GROQ_CALLS below, one stuck fetch freezes the
+// entire queue — every later candidate waits on a promise that never
+// resolves, which looks like "stuck loading" with no error. Aborting after
+// REQUEST_TIMEOUT_MS turns that hang into a normal failure the retry/fallback
+// logic already knows how to handle.
+const REQUEST_TIMEOUT_MS = 30000;
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Keeps prompt size (and therefore tokens-per-minute burn) bounded. The
 // skills/experience signal a matcher needs is almost always front-loaded in
 // a CV or JD, so trimming the tail loses little while meaningfully cutting
@@ -76,14 +93,21 @@ function pumpGroqQueue() {
 // exhausting retries, so downstream error messages are actually true.
 async function fetchGroqWithRetry(body, apiKey, maxRetries = 5) {
   for (let attempt = 0; ; attempt += 1) {
-    const response = await scheduleGroqCall(() => fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(body)
-    }));
+    let response;
+    try {
+      response = await scheduleGroqCall(() => fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(body)
+      }));
+    } catch (err) {
+      if (attempt >= maxRetries) throw err;
+      await sleep((2 ** attempt) * 1000);
+      continue;
+    }
 
     if (response.status !== 429 || attempt >= maxRetries) {
       return response;
@@ -100,7 +124,7 @@ async function fetchGroqWithRetry(body, apiKey, maxRetries = 5) {
 // as a rate-limit escape hatch, not a load-balancing target.
 const GEMINI_MODEL = 'gemini-2.0-flash';
 async function fetchGeminiForMatch(systemPrompt, userMessage, apiKey) {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
@@ -183,34 +207,44 @@ ${truncateForPrompt(cvText)}`;
   let usedFallback = false;
 
   try {
-    const response = await fetchGroqWithRetry({
-      model: modelName || "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userMessage }
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-      max_tokens: 500
-    }, apiKey);
+    // Groq's own retries (fetchGroqWithRetry) are already exhausted by the
+    // time we get here, whether it gave up with a 429 response or a thrown
+    // timeout/network error. Gemini draws from a separate free-tier budget,
+    // so it's a genuine escape hatch rather than just retrying into the
+    // same wall.
+    let groqResponse = null;
+    let groqError = null;
+    try {
+      groqResponse = await fetchGroqWithRetry({
+        model: modelName || "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.2,
+        max_tokens: 500
+      }, apiKey);
+    } catch (err) {
+      groqError = err;
+    }
 
-    if (response.ok) {
-      const data = await response.json();
+    if (groqResponse && groqResponse.ok) {
+      const data = await groqResponse.json();
       const choice = (data.choices || [])[0];
       if (!choice || !choice.message || !choice.message.content) {
         return res.status(500).json({ error: 'No text response from model' });
       }
       rawContent = choice.message.content;
-    } else if (response.status === 429 && geminiApiKey) {
-      // Groq's own retries (fetchGroqWithRetry) are already exhausted here —
-      // Gemini draws from a separate free-tier budget, so it's a genuine
-      // escape hatch rather than just retrying into the same wall.
+    } else if (geminiApiKey) {
       usedFallback = true;
       rawContent = await fetchGeminiForMatch(systemPrompt, userMessage, geminiApiKey);
-    } else if (response.status === 429) {
+    } else if (groqResponse && groqResponse.status === 429) {
       return res.status(429).json({ error: 'Still rate-limited after retrying — try analyzing fewer candidates at once, or wait a minute and re-run the failed ones.' });
+    } else if (groqResponse) {
+      return res.status(groqResponse.status).json({ error: `API error ${groqResponse.status}` });
     } else {
-      return res.status(response.status).json({ error: `API error ${response.status}` });
+      throw groqError;
     }
 
     const parsed = parseModelJson(rawContent);
@@ -222,7 +256,7 @@ ${truncateForPrompt(cvText)}`;
   } catch (error) {
     console.error(`Error calling ${usedFallback ? 'Gemini fallback' : 'Groq'}:`, error);
     if (usedFallback) {
-      return res.status(429).json({ error: 'Groq is rate-limited and the Gemini fallback also failed — try again in a minute.' });
+      return res.status(429).json({ error: 'Groq is rate-limited or timed out, and the Gemini fallback also failed — try again in a minute.' });
     }
     res.status(500).json({ error: 'Internal server error while calling the AI provider' });
   }
