@@ -91,7 +91,7 @@ async function handleFiles(fileList){
   for(const file of toProcess){
     candidateIdSeq += 1;
     const id = candidateIdSeq;
-    candidates.push({id, fileName:file.name, name:'Reading CV…', cv:'', status:'reading', matchPercent:null, summary:'', error:'', expanded:false});
+    candidates.push({id, fileName:file.name, name:'Reading CV…', cv:'', status:'reading', matchPercent:null, summary:'', currentCompany:'', currentLocation:'', currentCTC:'', stayInCurrentCompany:'', error:'', expanded:false});
     renderCandidateList();
     updateDropzoneAvailability();
 
@@ -344,6 +344,10 @@ async function analyzeAll(){
         const result = await callGroqForMatch(modelName, jdText, jobTitle, c.name || 'Unnamed candidate', c.cv);
         c.matchPercent = Math.max(0, Math.min(100, Math.round(result.matchPercent)));
         c.summary = result.summary.trim();
+        c.currentCompany = (result.currentCompany || '').trim();
+        c.currentLocation = (result.currentLocation || '').trim();
+        c.currentCTC = (result.currentCTC || '').trim();
+        c.stayInCurrentCompany = (result.stayInCurrentCompany || '').trim();
         c.status = 'done';
       }catch(err){
         c.status = 'error';
@@ -412,6 +416,12 @@ function renderResults(list, jobTitle, forceOrderAsIs){
     } else if(c.status === 'done'){
       div.className = 'dossier';
       const wc = c.summary.split(/\s+/).filter(Boolean).length;
+      const facts = [
+        c.currentCompany ? `Current company: ${escapeHtml(c.currentCompany)}` : '',
+        c.currentLocation ? `Current location: ${escapeHtml(c.currentLocation)}` : '',
+        c.currentCTC ? `Current CTC: ${escapeHtml(c.currentCTC)}` : '',
+        c.stayInCurrentCompany ? `Stay in current company: ${escapeHtml(c.stayInCurrentCompany)}` : ''
+      ].filter(Boolean);
       div.innerHTML = `
         <div class="stamp-col">
           <div class="rank-num">#${idx+1}</div>
@@ -422,6 +432,7 @@ function renderResults(list, jobTitle, forceOrderAsIs){
         </div>
         <div class="dossier-body">
           <div class="dossier-name">${escapeHtml(displayName)}</div>
+          ${facts.length ? `<div class="dossier-facts">${facts.map(f => `<span>${f}</span>`).join('')}</div>` : ''}
           <div class="dossier-summary">${escapeHtml(c.summary)}<span class="wordcount">${wc} words</span></div>
         </div>`;
     } else {
