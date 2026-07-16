@@ -184,8 +184,14 @@ Before scoring, mentally build a checklist of the JD's concrete requirements (sk
 The JSON object must have exactly these keys, IN THIS ORDER (reason in "summary" first, then commit to "matchPercent" based on that reasoning — the number must be consistent with what "summary" says, never more favorable than the gaps you just described):
 {
   "summary": "<70-100 words, third person, in full readable sentences (not a fragment list). Name the current/most relevant employer and what it actually manufactures or does per the CV, state whether that matches the JD's required industry, then name the specific other requirements met and the specific ones missing or weak. Do not compress this below 70 words — the employer/industry grounding and the requirement-by-requirement comparison both need room to be written out in full sentences.>",
-  "matchPercent": <integer 0-100, how well the candidate fits the JD>
+  "matchPercent": <integer 0-100, how well the candidate fits the JD>,
+  "currentCompany": "<the candidate's current/most recent employer name exactly as given in the CV, or empty string \"\" if not stated>",
+  "currentLocation": "<the candidate's current location/city exactly as given in the CV — often an explicit field labeled 'Current Location' or 'Location' — or empty string \"\" if not stated>",
+  "currentCTC": "<the candidate's current CTC exactly as given in the CV — often an explicit field labeled 'Current CTC' or 'CTC' — or empty string \"\" if not stated>",
+  "stayInCurrentCompany": "<how long the candidate has stayed/worked at their current company, exactly as given in the CV — often an explicit field labeled 'Stay in Current Company' or derivable from employment dates — or empty string \"\" if not stated>"
 }
+
+These four extra fields are plain factual extraction from the CV, not reasoning — never guess or infer a value that is not actually written in the CV; leave the field as an empty string instead.
 
 Scoring guidance — be discriminating, most real candidates are imperfect and should NOT cluster near 80: 90-100 = meets nearly every requirement with real depth. 70-89 = meets most core requirements, one or two clear gaps. 50-69 = meets roughly half the requirements, several clear gaps. 30-49 = meets only a minority of requirements. Below 30 = largely unrelated background. Two candidates with different gaps must not receive the same score — reflect the actual difference in the number and severity of unmet requirements.
 
@@ -252,7 +258,14 @@ ${truncateForPrompt(cvText)}`;
       return res.status(500).json({ error: 'Malformed response shape' });
     }
 
-    res.json(parsed);
+    res.json({
+      summary: parsed.summary,
+      matchPercent: parsed.matchPercent,
+      currentCompany: typeof parsed.currentCompany === 'string' ? parsed.currentCompany : '',
+      currentLocation: typeof parsed.currentLocation === 'string' ? parsed.currentLocation : '',
+      currentCTC: typeof parsed.currentCTC === 'string' ? parsed.currentCTC : '',
+      stayInCurrentCompany: typeof parsed.stayInCurrentCompany === 'string' ? parsed.stayInCurrentCompany : ''
+    });
   } catch (error) {
     console.error(`Error calling ${usedFallback ? 'Gemini fallback' : 'Groq'}:`, error);
     if (usedFallback) {

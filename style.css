@@ -177,6 +177,11 @@
   .dossier-name{
     font-family:'IBM Plex Serif',serif; font-weight:700; font-size:17px; margin-bottom:4px;
   }
+  .dossier-facts{
+    display:flex; flex-wrap:wrap; gap:6px 14px; margin-bottom:10px;
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-soft);
+    letter-spacing:.02em;
+  }
   .dossier-summary{ font-size:13.5px; line-height:1.55; color:var(--ink); }
   .dossier-summary .wordcount{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-soft); display:block; margin-top:6px;}
   .status-line{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--teal); }
