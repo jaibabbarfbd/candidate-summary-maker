@@ -462,7 +462,15 @@ function buildEmail(){
 
   done.forEach((c, idx) => {
     const name = c.name || `Candidate ${idx+1}`;
-    body += `${idx+1}. ${name} — ${c.matchPercent}% match\n${c.summary}\n\n`;
+    const facts = [
+      c.currentCompany ? `Current company: ${c.currentCompany}` : '',
+      c.currentLocation ? `Current location: ${c.currentLocation}` : '',
+      c.currentCTC ? `Current CTC: ${c.currentCTC}` : '',
+      c.stayInCurrentCompany ? `Stay in current company: ${c.stayInCurrentCompany}` : ''
+    ].filter(Boolean).join(' | ');
+    body += `${idx+1}. ${name} — ${c.matchPercent}% match\n`;
+    if(facts) body += `${facts}\n`;
+    body += `${c.summary}\n\n`;
   });
 
   body += `Happy to arrange interviews with any of the above at your convenience, or share full CVs for further review.\n\n`;
